@@ -12,10 +12,12 @@ const currentMonth = new Date().getMonth(); // 0-based
 
 // ----- Fee Form -----
 function FeeForm({ onSuccess }) {
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [formData, setFormData] = useState({
         court: "Court 1",
         name: "",
         timing: "6-7am",
+        customTiming: "",
         date: "",
         type: "Member",
         fee: "",
@@ -33,13 +35,24 @@ function FeeForm({ onSuccess }) {
             alert("Please fill required fields.");
             return;
         }
+
+        const finalTiming = formData.timing === "Manual" ? formData.customTiming : formData.timing;
+        if (formData.timing === "Manual" && !finalTiming) {
+            alert("Please enter a custom timing.");
+            return;
+        }
+
+        const payload = { ...formData, timing: finalTiming };
+        delete payload.customTiming; // Remove customTiming from payload being sent to sheets
+
+        setIsSubmitting(true);
         try {
-            await appendFeeEntry(formData);
-            alert(`Success! Recorded Rs.${formData.fee} for ${formData.name}`);
+            await appendFeeEntry(payload);
             setFormData({
                 court: "Court 1",
                 name: "",
                 timing: "6-7am",
+                customTiming: "",
                 date: "",
                 type: "Member",
                 fee: "",
@@ -48,8 +61,25 @@ function FeeForm({ onSuccess }) {
         } catch (err) {
             alert("Failed to submit entry. Check console for details.");
             console.error(err);
+        } finally {
+            setIsSubmitting(false);
         }
     };
+
+    if (isSubmitting) {
+        return (
+            <div className="fee-form" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '400px' }}>
+                <div className="spinner" style={{ border: '4px solid rgba(255, 255, 255, 0.1)', borderTop: '4px solid #10b981', borderRadius: '50%', width: '40px', height: '40px', animation: 'spin 1s linear infinite' }}></div>
+                <h3 style={{ marginTop: '1rem', color: '#10b981', textAlign: 'center' }}>Recording Entry...</h3>
+                <style>{`
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                `}</style>
+            </div>
+        );
+    }
 
     return (
         <form onSubmit={handleSubmit} className="fee-form">
@@ -68,14 +98,28 @@ function FeeForm({ onSuccess }) {
             </div>
             <div className="form-group">
                 <label>Timing (Session):</label>
-                <select name="timing" value={formData.timing} onChange={handleChange} className="form-input" required>
-                    <option value="6-7am">6:00-7:00am</option>
-                    <option value="7-8am">7:00-8:00am</option>
-                    <option value="5:40 - 7:30 pm">5:40 - 7:30 pm</option>
-                    <option value="6:00 - 7:00 pm">6:00 - 7:00 pm</option>
-                    <option value="7:00 - 8:00 pm">7:00 - 8:00 pm</option>
-                    <option value="8:00-9:00 pm">8:00-9:00 pm</option>                 
-                </select>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <select name="timing" value={formData.timing} onChange={handleChange} className="form-input" required>
+                        <option value="6-7am">6:00-7:00am</option>
+                        <option value="7-8am">7:00-8:00am</option>
+                        <option value="5:40 - 7:30 pm">5:40 - 7:30 pm</option>
+                        <option value="6:00 - 7:00 pm">6:00 - 7:00 pm</option>
+                        <option value="7:00 - 8:00 pm">7:00 - 8:00 pm</option>
+                        <option value="8:00-9:00 pm">8:00-9:00 pm</option>
+                        <option value="Manual">Other (Manual)</option>
+                    </select>
+                    {formData.timing === "Manual" && (
+                        <input
+                            type="text"
+                            name="customTiming"
+                            value={formData.customTiming}
+                            onChange={handleChange}
+                            className="form-input"
+                            placeholder="Enter custom timing (e.g. 9-10am)"
+                            required
+                        />
+                    )}
+                </div>
             </div>
             <div className="form-group">
                 <label>Date:</label>
@@ -93,7 +137,7 @@ function FeeForm({ onSuccess }) {
                 <label>Fee Amount (₹):</label>
                 <input type="number" name="fee" value={formData.fee} onChange={handleChange} className="form-input" placeholder="e.g. 500" required />
             </div>
-            <button type="submit" className="submit-btn" disabled={!formData.name || !formData.fee}>
+            <button type="submit" className="submit-btn" disabled={!formData.name || !formData.fee || (formData.timing === "Manual" && !formData.customTiming) || isSubmitting}>
                 Submit Entry
             </button>
         </form>
@@ -108,8 +152,8 @@ function FeeView() {
     const [selectedMonth, setSelectedMonth] = useState(currentMonth.toString());
     const [selectedYear, setSelectedYear] = useState(currentYear.toString());
 
-    // Generate last 5 years to next 1 year
-    const yearOptions = Array.from({ length: 7 }, (_, i) => currentYear - 5 + i);
+    // Hardcoded years 2026 to 2030
+    const yearOptions = [2026, 2027, 2028, 2029, 2030];
 
     useEffect(() => {
         const load = async () => {
@@ -204,7 +248,7 @@ function FeeView() {
                                 <thead>
                                     <tr>
                                         <th>Name</th>
-                                        <th>Type</th>
+                                        <th>Date</th>
                                         <th>Amount</th>
                                     </tr>
                                 </thead>
@@ -212,7 +256,7 @@ function FeeView() {
                                     {sessionData.items[courtName][timing].map((p, idx) => (
                                         <tr key={idx}>
                                             <td>{p.name}</td>
-                                            <td>{p.type}</td>
+                                            <td>{p.date ? new Date(p.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '-'}</td>
                                             <td>₹{p.fee}</td>
                                         </tr>
                                     ))}
@@ -239,7 +283,7 @@ function FeeView() {
                         <thead>
                             <tr>
                                 <th>Name</th>
-                                <th>Type</th>
+                                <th>Date</th>
                                 <th>Amount</th>
                             </tr>
                         </thead>
@@ -247,7 +291,7 @@ function FeeView() {
                             {dataGroup.items.map((p, idx) => (
                                 <tr key={idx}>
                                     <td>{p.name}</td>
-                                    <td>{p.type}</td>
+                                    <td>{p.date ? new Date(p.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '-'}</td>
                                     <td>₹{p.fee}</td>
                                 </tr>
                             ))}
